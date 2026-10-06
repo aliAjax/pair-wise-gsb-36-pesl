@@ -1,18 +1,138 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>水资源权配置</title>
-<style>body{font:15px/1.5 system-ui,sans-serif;max-width:980px;margin:32px auto;padding:0 18px}input,select,button{padding:7px;margin:3px}.card{border:1px solid #d9e1e8;border-radius:10px;padding:16px;margin:16px 0}pre{background:#f5f7f9;padding:12px;overflow:auto}small{color:#667}button{cursor:pointer}</style></head>
-<body><h1>跨区域水资源使用权</h1><p>示例账户初始化后，可查看余额、发起转让、审核，并模拟干旱分配。</p>
-<div class="card"><h2>身份</h2><input id="user" value="alice"><select id="role"><option>editor</option><option>reviewer</option><option>meter</option><option>viewer</option></select></div>
-<div class="card"><h2>账户</h2><button onclick="getAccounts()">刷新账户</button><pre id="accounts">等待操作…</pre></div>
-<div class="card"><h2>发起转让</h2><input id="from" type="number" value="1" placeholder="转出账户"><input id="to" type="number" value="2" placeholder="转入账户"><input id="amount" type="number" value="400"><input id="date" type="date" value="2026-06-01"><button onclick="transfer()">提交审批</button><pre id="result"></pre></div>
-<div class="card"><h2>审批最新转让</h2><input id="transfer_id" type="number" placeholder="转让 ID"><button onclick="approve()">批准</button><button onclick="reject()">退回</button></div>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>水资源权配置 · 污染禁调</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;max-width:1080px;margin:32px auto;padding:0 18px;color:#1f2d3a}
+h1{margin-bottom:4px}h2{font-size:17px;margin:0 0 10px}
+input,select,button{padding:7px;margin:3px;font:inherit;border-radius:6px;border:1px solid #c3ced8}
+button{cursor:pointer;background:#2563eb;color:#fff;border-color:#2563eb}
+button.secondary{background:#fff;color:#2563eb}
+button.danger{background:#b91c1c;border-color:#b91c1c}
+.card{border:1px solid #d9e1e8;border-radius:10px;padding:16px;margin:16px 0;background:#fff}
+pre{background:#f5f7f9;padding:12px;overflow:auto;border-radius:8px;font-size:13px}
+small{color:#667}
+table{border-collapse:collapse;width:100%;margin:8px 0;font-size:14px}
+th,td{border:1px solid #d9e1e8;padding:6px 9px;text-align:left;vertical-align:top}
+th{background:#eef3f8}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;margin-right:4px}
+.tag.active{background:#fee2e2;color:#991b1b}
+.tag.lifted{background:#dcfce7;color:#166534}
+.tag.frozen{background:#fef3c7;color:#92400e}
+.tag.restored{background:#dcfce7;color:#166534}
+.tag.failed{background:#fee2e2;color:#991b1b}
+.reach{margin:14px 0;padding:12px;border:1px solid #cbd9e6;border-radius:10px;background:#fbfdff}
+.reach h3{margin:0 0 6px;font-size:15px}
+.muted{color:#667;font-size:13px}
+.ok{color:#166534}.err{color:#991b1b}
+</style></head>
+<body>
+<h1>跨区域水资源使用权 · 污染预警禁调</h1>
+<p class="muted">禁调令同时管住转让与取水：禁调期内水权账户不能转出、不接受新的取水确认；已批准转让暂停执行，恢复后按原顺序补办。</p>
+
+<div class="card"><h2>身份</h2><input id="user" value="dispatcher-1">
+<select id="role"><option>dispatcher</option><option>editor</option><option>reviewer</option><option>meter</option><option>viewer</option></select>
+<small>调度员(dispatcher)可发布/解除禁调令；审核人(reviewer)审批、结算转让；计量员(meter)登记取水。</small></div>
+
+<div class="card"><h2>发布污染禁调令</h2>
+<input id="f_reach" value="干流北段" placeholder="河段">
+<input id="f_start" type="date" value="2026-10-06">
+<input id="f_end" type="date" value="2026-10-10">
+<input id="f_cond" value="待污染物浓度连续 48 小时达标" placeholder="恢复条件" style="width:260px">
+<input id="f_reason" value="干流氨氮超标预警" placeholder="预警原因" style="width:220px">
+<button onclick="createFreeze()">发布禁调令</button><pre id="f_result"></pre></div>
+
+<div class="card"><h2>禁调看板（按河段）</h2>
+<button class="secondary" onclick="board()">刷新看板</button>
+<div id="board" class="muted">等待刷新…</div></div>
+
+<div class="card"><h2>账户与可用量（冻结额 / 待恢复顺位）</h2>
+<button class="secondary" onclick="getAccounts()">刷新账户</button><pre id="accounts">等待操作…</pre>
+<button class="secondary" onclick="avail()">查看账户冻结明细 ID=</button><input id="avail_id" type="number" value="1" style="width:70px"><pre id="avail"></pre></div>
+
+<div class="card"><h2>发起转让</h2>
+<input id="from" type="number" value="1" placeholder="转出账户" style="width:80px">
+<input id="to" type="number" value="2" placeholder="转入账户" style="width:80px">
+<input id="amount" type="number" value="100" style="width:90px">
+<input id="date" type="date" value="2026-10-08">
+<button onclick="transfer()">提交审批</button><pre id="result"></pre></div>
+
+<div class="card"><h2>审批 / 结算转让</h2>
+转让 ID <input id="transfer_id" type="number" style="width:80px">
+<button onclick="approve()">批准</button><button class="secondary" onclick="reject()">退回</button>
+<hr><small>批准后到生效日由结算批处理划转；禁调期内会被收入恢复队列。</small><br>
+结算日期 <input id="settle_date" type="date" value="2026-10-08">
+<button class="secondary" onclick="settle()">执行结算批处理</button><pre id="settle"></pre></div>
+
+<div class="card"><h2>登记取水确认</h2>
+账户 <input id="u_acc" type="number" value="2" style="width:80px">
+水量 <input id="u_amt" type="number" value="20" style="width:90px">
+日期 <input id="u_date" type="date" value="2026-10-07">
+事件号 <input id="u_evt" value="M-2026-001" style="width:130px">
+<button onclick="usage()">确认取水</button><pre id="u_result"></pre></div>
+
+<div class="card"><h2>修改恢复条件 / 解除禁调令</h2>
+禁调令 ID <input id="fo_id" type="number" value="1" style="width:80px">
+版本 <input id="fo_ver" type="number" value="1" style="width:70px">
+新恢复日期 <input id="fo_end" type="date" value="2026-10-12">
+新恢复条件 <input id="fo_cond" value="连续 72 小时达标并复测" style="width:230px">
+<button onclick="conditions()">改恢复条件</button>
+<button class="danger" onclick="lift()">解除并恢复</button>
+<button class="secondary" onclick="restoreOnly()">仅重试恢复批处理</button>
+<pre id="fo_result"></pre></div>
+
 <div class="card"><h2>干旱情景</h2><input id="supply" type="number" value="1200"><input id="reduction" type="number" value="0.3" step="0.1"><button onclick="simulate()">模拟</button><pre id="drought">等待操作…</pre></div>
+
 <script>
+const $=id=>document.getElementById(id);
 const headers=()=>({'Content-Type':'application/json','X-User':user.value,'X-Role':role.value});
-async function call(url,opts={}){const r=await fetch(url,opts);const j=await r.json();if(!r.ok)throw Error(j.error||r.status);return j}
-async function getAccounts(){try{accounts.textContent=JSON.stringify(await call('/api/accounts'),null,2)}catch(e){accounts.textContent=e.message}}
-async function transfer(){try{result.textContent=JSON.stringify(await call('/api/transfers',{method:'POST',headers:headers(),body:JSON.stringify({from_account_id:+from.value,to_account_id:+to.value,amount:+amount.value,effective_date:date.value})}),null,2)}catch(e){result.textContent=e.message}}
-async function approve(){try{result.textContent=JSON.stringify(await call('/api/transfers/'+transfer_id.value+'/approve',{method:'POST',headers:headers(),body:'{}'}),null,2)}catch(e){result.textContent=e.message}}
-async function reject(){try{result.textContent=JSON.stringify(await call('/api/transfers/'+transfer_id.value+'/reject',{method:'POST',headers:headers(),body:'{}'}),null,2)}catch(e){result.textContent=e.message}}
-async function simulate(){try{drought.textContent=JSON.stringify(await call('/api/drought/simulate?supply='+supply.value+'&reduction='+reduction.value),null,2)}catch(e){drought.textContent=e.message}}
+async function call(url,opts={}){const r=await fetch(url,opts);const j=await r.json();if(!r.ok){const e=Error(j.error||r.status);e.payload=j;throw e}return j}
+function show(id,e){const p=$(id);p.className=e&&e.payload&&e.payload.current?'err':'';p.textContent=e&&e.payload?JSON.stringify(e.payload,null,2):e.message}
+
+async function getAccounts(){try{accounts.textContent=JSON.stringify(await call('/api/accounts'),null,2)}catch(e){show('accounts',e)}}
+async function avail(){try{avail.textContent=JSON.stringify(await call('/api/accounts/'+avail_id.value+'/available'),null,2)}catch(e){show('avail',e)}}
+async function transfer(){try{result.textContent=JSON.stringify(await call('/api/transfers',{method:'POST',headers:headers(),body:JSON.stringify({from_account_id:+from.value,to_account_id:+to.value,amount:+amount.value,effective_date:date.value})}),null,2)}catch(e){show('result',e)}}
+async function approve(){try{result.textContent=JSON.stringify(await call('/api/transfers/'+transfer_id.value+'/approve',{method:'POST',headers:headers(),body:'{}'}),null,2)}catch(e){show('result',e)}}
+async function reject(){try{result.textContent=JSON.stringify(await call('/api/transfers/'+transfer_id.value+'/reject',{method:'POST',headers:headers(),body:'{}'}),null,2)}catch(e){show('result',e)}}
+async function settle(){try{settle.textContent=JSON.stringify(await call('/api/transfers/settle',{method:'POST',headers:headers(),body:JSON.stringify({as_of:settle_date.value})}),null,2)}catch(e){show('settle',e)}}
+async function usage(){try{u_result.textContent=JSON.stringify(await call('/api/usage',{method:'POST',headers:headers(),body:JSON.stringify({account_id:+u_acc.value,amount:+u_amt.value,meter_event_id:u_evt.value,occurred_at:u_date.value})}),null,2)}catch(e){show('u_result',e)}}
+async function simulate(){try{drought.textContent=JSON.stringify(await call('/api/drought/simulate?supply='+supply.value+'&reduction='+reduction.value),null,2)}catch(e){show('drought',e)}}
+
+async function createFreeze(){
+  try{f_result.textContent=JSON.stringify(await call('/api/freeze',{method:'POST',headers:headers(),
+    body:JSON.stringify({reach:f_reach.value,started_on:f_start.value,planned_end_on:f_end.value,condition_note:f_cond.value,reason:f_reason.value})}),null,2)
+  }catch(e){show('f_result',e)}
+  board();
+}
+async function conditions(){try{fo_result.className='';fo_result.textContent=JSON.stringify(await call('/api/freeze/'+fo_id.value+'/conditions',{method:'POST',headers:headers(),body:JSON.stringify({planned_end_on:fo_end.value,condition_note:fo_cond.value,version:+fo_ver.value})}),null,2)}catch(e){show('fo_result',e)}}
+async function lift(){try{fo_result.className='ok';fo_result.textContent=JSON.stringify(await call('/api/freeze/'+fo_id.value+'/lift',{method:'POST',headers:headers(),body:JSON.stringify({version:+fo_ver.value})}),null,2)}catch(e){show('fo_result',e)}board()}
+async function restoreOnly(){try{fo_result.className='ok';fo_result.textContent=JSON.stringify(await call('/api/freeze/'+fo_id.value+'/restore',{method:'POST',headers:headers(),body:'{}'}),null,2)}catch(e){show('fo_result',e)}board()}
+
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function board(){
+  const el=$('board');
+  try{
+    const data=await call('/api/freeze/board');
+    if(!data.reaches.length){el.innerHTML='<span class="muted">暂无禁调记录。</span>';return}
+    el.innerHTML=data.reaches.map(r=>`
+      <div class="reach"><h3>河段：${esc(r.reach)}</h3>
+      ${r.orders.map(o=>`
+        <p><span class="tag ${o.status}">${o.status==='active'?'禁调中':'已解除'}</span>
+        禁调令 #${o.id} ｜ ${esc(o.started_on)} → ${esc(o.planned_end_on)} ｜ 版本 v${o.version}<br>
+        <span class="muted">原因：${esc(o.reason)} ｜ 恢复条件：${esc(o.condition_note)}</span></p>
+        <table><tr><th>冻结账户</th><th>状态</th><th>冻结转出额</th><th>冻结转入额</th><th>重试次数</th><th>最近失败原因</th></tr>
+        ${o.accounts.map(a=>`<tr><td>#${a.account_id} ${esc(a.name)}</td>
+          <td><span class="tag ${a.status}">${a.status==='frozen'?'冻结':'已恢复'}</span></td>
+          <td>${a.frozen_outgoing.toFixed(2)}</td><td>${a.frozen_incoming.toFixed(2)}</td>
+          <td>${a.attempts}</td><td class="err">${esc(a.last_error||'')}</td></tr>`).join('')}
+        </table>
+        <table><tr><th>待恢复顺位</th><th>转让</th><th>金额</th><th>生效日</th><th>状态</th><th>失败原因</th></tr>
+        ${o.restore_queue.map(t=>`<tr><td>${t.restore_seq}</td>
+          <td>#${t.id} ${esc(t.from_name)} → ${esc(t.to_name)}</td><td>${t.amount}</td>
+          <td>${esc(t.effective_date)}</td>
+          <td>${t.restore_state==='failed'?'<span class="tag failed">待重试</span>':t.restore_state==='done'?'<span class="tag restored">已恢复</span>':'排队中'}</td>
+          <td class="err">${esc(t.restore_error||'')}</td></tr>`).join('')||'<tr><td colspan=6 class=muted>该禁调令没有待恢复转让。</td></tr>'}
+        </table>
+      `).join('')}</div>`).join('');
+  }catch(e){el.innerHTML='<span class="err">'+esc(e.message)+'</span>'}
+}
+board();
 </script></body></html>
